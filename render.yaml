@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cinema-post-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn bot:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ALLOWED_USER_ID
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: RENDER_URL
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
