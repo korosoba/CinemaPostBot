@@ -1,18 +1,22 @@
 """
-Generates a ready-to-publish Telegram post from article text using Groq.
+Generates a ready-to-publish Telegram post from article text.
+Uses Groq API via direct HTTP requests (no groq library — avoids httpx conflicts).
 """
 
 import os
 import json
 import logging
-from groq import Groq
+import urllib.request
+
 from article_parser import ParsedArticle
 
 logger = logging.getLogger(__name__)
 
-client = Groq(api_key=os.environ["GROQ_API_KEY"])
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+HOT_THRESHOLD = int(os.getenv("HOT_THRESHOLD", "6"))
 
-SYSTEM_PROMPT = """Ты — редактор Telegram-канала о кино КороСоба. 
+SYSTEM_PROMPT = """Ты — редактор Telegram-канала о кино КороСоба.
 Пишешь короткие, живые посты для аудитории, которая любит кино.
 
 Получаешь текст статьи и должен написать готовый пост для Telegram.
@@ -30,7 +34,7 @@ SYSTEM_PROMPT = """Ты — редактор Telegram-канала о кино �
 
 
 def generate_post(article: ParsedArticle) -> str:
-    """Generate a Telegram post from a parsed article."""
+    """Generate a Telegram post from a parsed article via Groq HTTP API."""
     user_prompt = f"""Статья: {article.url}
 
 Заголовок: {article.title or '(нет)'}
@@ -38,20 +42,31 @@ def generate_post(article: ParsedArticle) -> str:
 Текст:
 {article.text}"""
 
-    try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0.7,
-            max_tokens=700,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-        )
-        post = response.choices[0].message.content.strip()
-        logger.info(f"✅ Post generated: {len(post)} chars")
-        return post
+    payload = json.dumps({
+        "model": "llama-3.3-70b-versatile",
+        "temperature": 0.7,
+        "max_tokens": 700,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+    }).encode()
 
+    req = urllib.request.Request(
+        GROQ_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read())
+            post = data["choices"][0]["message"]["content"].strip()
+            logger.info(f"✅ Post generated: {len(post)} chars")
+            return post
     except Exception as e:
-        logger.error(f"Groq generation failed: {e}")
+        logger.error(f"Groq HTTP request failed: {e}")
         raise
